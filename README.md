@@ -1,6 +1,12 @@
+# Disclamer
+
+This is not an official Google product.
+
 # Overview
 
-TODO
+pam-cryptsetup provides a PAM module that allows LUKS-based disk encryption passwords to be
+kept in sync with account passwords automatically based on factors like if the user has
+decypted the disk successfully previously.
 
 # Building
 
