@@ -1,0 +1,5 @@
+pam-cryptsetup (0.1-1) UNRELEASED; urgency=medium
+
+  * Initial release.
+
+ -- Warren Whitman <warrenpw@google.com>  Wed, 20 Sep 2017 14:19:34 -0700

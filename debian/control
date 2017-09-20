@@ -1,0 +1,19 @@
+Source: pam-cryptsetup
+Maintainer: Warren Whitman <warrenpw@google.com>
+Section: admin
+Priority: optional
+Standards-Version: 3.9.5
+Build-Depends: debhelper (>= 9), autotools-dev, libglib2.0-dev,
+  libcryptsetup4, libdevmapper1.02.1, libpam0g,
+  libcryptsetup-dev, libdevmapper-dev, libpam0g-dev, automake,
+  libtool, autogen, dh-autoreconf
+Homepage: https://github.com/google/pam-cryptsetup
+
+Package: pam-cryptsetup
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Allows password of encrypted volume to be set on login
+ Attempts to match user login pass with existing LUKS encryption keyslot.
+ If successful, pam-cryptsetup notes the association, and if a future
+ login fails to decrypt the disk via that slot, the user is moved to a
+ new slot that is keyed with the new password, and the old slot destroyed.
