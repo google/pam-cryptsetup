@@ -49,7 +49,7 @@ static void SetUpTemp(testFixture *fixture, gconstpointer userdata) {
 }
 
 static void SetUpTempAndCrypt(testFixture *fixture, gconstpointer userdata) {
-  char buffer[1024];
+  char buffer[2048];
   char *tempfile;
   FILE *keyfile;
 
@@ -60,15 +60,15 @@ static void SetUpTempAndCrypt(testFixture *fixture, gconstpointer userdata) {
     return;
   }
 
-  sprintf(buffer, "/bin/cp ../testdata/testimage.img %s",
-          fixture->tempdir_path);
+  snprintf(buffer, sizeof buffer, "/bin/cp ../testdata/testimage.img %s",
+           fixture->tempdir_path);
   if (0 != system(buffer)) {
     g_test_fail();
     g_test_message("Failed to copy test image.");
     return;
   }
   tempfile = g_strconcat(fixture->tempdir_path, "/", "testimage.img", NULL);
-  sprintf(buffer, "/sbin/losetup /dev/loop0 %s", tempfile);
+  snprintf(buffer, sizeof buffer, "/sbin/losetup /dev/loop0 %s", tempfile);
   if (0 != system(buffer)) {
     g_test_fail();
     g_test_message("Failed to set up /dev/loop0.");
@@ -79,8 +79,9 @@ static void SetUpTempAndCrypt(testFixture *fixture, gconstpointer userdata) {
   keyfile = fopen(tempfile, "w");
   fputs(kPassphrase, keyfile);
   fclose(keyfile);
-  sprintf(buffer, "/sbin/cryptsetup luksOpen /dev/loop0 %s --key-file %s",
-          kCryptName, tempfile);
+  snprintf(buffer, sizeof buffer,
+           "/sbin/cryptsetup luksOpen /dev/loop0 %s --key-file %s", kCryptName,
+           tempfile);
   if (0 != system(buffer)) {
     g_test_fail();
     g_test_message("Failed to set up crypt container %s.", kCryptName);
@@ -90,12 +91,12 @@ static void SetUpTempAndCrypt(testFixture *fixture, gconstpointer userdata) {
 }
 
 static void TearDownTemp(testFixture *fixture, gconstpointer userdata) {
-  char buffer[1024];
+  char buffer[2048];
   int r = 0;
 
   CryptsetupModuleFree(fixture->module);
 
-  sprintf(buffer, "/bin/rm -r %s", fixture->tempdir_path);
+  snprintf(buffer, sizeof buffer, "/bin/rm -r %s", fixture->tempdir_path);
   r |= system(buffer);
   if (r != 0) {
     g_test_message(
@@ -104,10 +105,10 @@ static void TearDownTemp(testFixture *fixture, gconstpointer userdata) {
 }
 
 static void TearDownTempAndCrypt(testFixture *fixture, gconstpointer userdata) {
-  char buffer[1024];
+  char buffer[2048];
   int r = 0;
 
-  sprintf(buffer, "/sbin/cryptsetup luksClose %s", kCryptName);
+  snprintf(buffer, sizeof buffer, "/sbin/cryptsetup luksClose %s", kCryptName);
   r |= system(buffer);
   r |= system("/sbin/losetup -d /dev/loop0");
   if (r != 0) {
