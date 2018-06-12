@@ -1,0 +1,28 @@
+# autoreconf stuff
+aclocal.m4
+autom4te.cache/
+autotools/
+config.log
+config.status
+configure
+libtool
+Makefile
+Makefile.in
+m4/
+
+# build stuff
+*.o
+*.la
+*.lo
+*.log
+*.trs
+.libs/
+module_test
+
+# packaging stuff
+debian/autoreconf.*
+debian/.debhelper
+debian/files
+debian/tmp/
+debian/pam-cryptsetup/
+debian/pam-cryptsetup.substvars
