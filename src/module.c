@@ -340,24 +340,19 @@ int CryptsetupModuleRetrieveHeaderSlot(CryptsetupModule *self,
                                        const char *password, GError **error) {
   // Returns slot number for password in LUKS header, or -1 for none.
   int crypt_slot = -1;
-  int crypt_slots[8] = {};
-  pid_t child_pid;
+  int crypt_slots[8] = {-1};
 
   for(int i = 0; i < 8; i++) {
-    child_pid = fork();
-    if (child_pid == 0) {
-      //Start child process
-      crypt_slots[i] = crypt_activate_by_passphrase(
-          self->crypt_device, NULL, i, password, strlen(password), 0);
-      exit(0);
-      //End child process
-    }
+    crypt_slots[i] = crypt_activate_by_passphrase(
+        self->crypt_device, NULL, i, password, strlen(password), 0);
   }
-  while(wait(NULL) > 0);
 
   for(int i = 0; i < 8; i++) {
     if (crypt_slots[i] == -1) {
       // Password didn't match slot (Operation not permitted).
+      continue;
+    } else if (crypt_slots[i] == -2) {
+      // Specified slot is empty (No such file or directory).
       continue;
     } else if (crypt_slots[i] < 0) {
       g_set_error(error, kCryptsetupModuleError,
@@ -583,7 +578,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc,
     goto done;
   }
 
-  const gchar *password = PamGetItemString(pamh, PAM_USER, "password", &error);
+  const gchar *password = PamGetItemString(pamh, PAM_AUTHTOK, "password", &error);
   if (!password && (PAM_DISALLOW_NULL_AUTHTOK & flags)) {
     CryptsetupModuleFree(module);
     return PAM_AUTH_ERR;
