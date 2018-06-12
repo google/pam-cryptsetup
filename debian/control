@@ -4,7 +4,6 @@ Section: admin
 Priority: optional
 Standards-Version: 3.9.5
 Build-Depends: debhelper (>= 9), autotools-dev, libglib2.0-dev,
-  libcryptsetup4, libdevmapper1.02.1, libpam0g,
   libcryptsetup-dev, libdevmapper-dev, libpam0g-dev, automake,
   libtool, autogen, dh-autoreconf
 Homepage: https://github.com/google/pam-cryptsetup
