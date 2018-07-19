@@ -1,11 +1,11 @@
 // Copyright 2017 Google Inc.
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,6 +15,7 @@
 #include "module.h"
 
 #include <errno.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -41,6 +42,8 @@ typedef struct {
   const char *username;
   const char *password;
 } CloneStruct;
+
+enum PamMode { PASSWORD, AUTH };
 
 GQuark _CryptsetupModuleErrorQuark() {
   return g_quark_from_string("cryptsetup-module-error-quark");
@@ -95,6 +98,27 @@ void _StringToByteArr(char *byte_buffer, char *string) {
     byte_buffer[i / 2] = byte;
     string += 2;
   }
+}
+
+void *_KeyslotCheckThread(void *vargp) {
+  void **val_p = (void **)(vargp);
+  CryptsetupModule *self = (CryptsetupModule *)(val_p[0]);
+  int *crypt_slots = (int *)(val_p[1]);
+  int i = *((int *)(val_p[2]));
+  char *password = (char *)(val_p[3]);
+
+  crypt_slots[i] = crypt_activate_by_passphrase(self->crypt_device, NULL, i,
+                                                password, strlen(password), 0);
+
+  if (self->debug) {
+    syslog(LOG_INFO, "Slot %d thread (id %lu) finished with code %d", i,
+           (unsigned long)pthread_self(), crypt_slots[i]);
+  }
+
+  // Free passed in Memory
+  free(vargp);
+
+  return NULL;
 }
 
 CryptsetupModule *CryptsetupModuleNew() {
@@ -340,24 +364,41 @@ int CryptsetupModuleRetrieveHeaderSlot(CryptsetupModule *self,
                                        const char *password, GError **error) {
   // Returns slot number for password in LUKS header, or -1 for none.
   int crypt_slot = -1;
-  int crypt_slots[8] = {};
-  pid_t child_pid;
+  int crypt_slots[8] = {-1};
+  // Static memory for each slot id
+  int slot_ids[] = {0, 1, 2, 3, 4, 5, 6, 7};
+  pthread_t tids[8] = {};
 
-  for(int i = 0; i < 8; i++) {
-    child_pid = fork();
-    if (child_pid == 0) {
-      //Start child process
-      crypt_slots[i] = crypt_activate_by_passphrase(
-          self->crypt_device, NULL, i, password, strlen(password), 0);
-      exit(0);
-      //End child process
+  // LUKS, by design, takes ~2 seconds to check 1 slot. Reduce the wait by
+  // threading all 8 checks
+  for (int i = 0; i < 8; i++) {
+    // Memory freed by threads
+    void **alloc_args = malloc(sizeof(void *) * 4);
+
+    if (alloc_args == NULL) {
+      g_set_error(error, kCryptsetupModuleError,
+                  kCryptsetupModuleCryptKeyslotError,
+                  "failed to allocate argument memory");
+      return -1;
     }
-  }
-  while(wait(NULL) > 0);
 
-  for(int i = 0; i < 8; i++) {
+    alloc_args[0] = (void *)self;
+    alloc_args[1] = (void *)crypt_slots;
+    alloc_args[2] = (void *)&slot_ids[i];
+    alloc_args[3] = (void *)password;
+
+    pthread_create(&tids[i], NULL, _KeyslotCheckThread, alloc_args);
+  }
+  for (int i = 0; i < 8; i++) {
+    pthread_join(tids[i], NULL);
+  }
+
+  for (int i = 0; i < 8; i++) {
     if (crypt_slots[i] == -1) {
       // Password didn't match slot (Operation not permitted).
+      continue;
+    } else if (crypt_slots[i] == -2) {
+      // Specified slot is empty (No such file or directory).
       continue;
     } else if (crypt_slots[i] < 0) {
       g_set_error(error, kCryptsetupModuleError,
@@ -445,30 +486,93 @@ static const char *PamGetItemString(pam_handle_t *pamh, int type,
   return value;
 }
 
-static int clone_function(void *arg) {
-  CloneStruct *clonestruct = (CloneStruct *)arg;
-  CryptsetupModule *module = clonestruct->module;
-  pam_handle_t *pamh = clonestruct->pamh;
-  const char *username = clonestruct->username;
-  const char *password = clonestruct->password;
-  int cache_slot;
-  int crypt_slot;
+void _ModuleCredMode(CryptsetupModule *module, const gchar *username,
+                     const gchar *password, const gchar *old_password) {
+  // Don't reuse error pointer from parent process
   GError *error = NULL;
+  int crypt_slot;
+  int cache_slot;
 
-  // Set our UID to root to match our EUID
-  // Prevent privilage de-escalation by libgcrypt memory protection
-  if (module->debug) {
-    uid_t olduid = getuid();
-    pam_syslog(pamh, LOG_INFO, "Crypt thread: thread started");
-    pam_syslog(pamh, LOG_INFO, "Crypt thread: dropping uid %d for uid 0",
-               olduid);
-  }
-  if (setuid(0) != 0) {
-    g_set_error(&error, kCryptsetupModuleError, kCryptsetupModuleGetItemError,
-                "Crypt thread: failed to setuid to 0: %s (%d)", strerror(errno),
-                errno);
+  if (!CryptsetupModuleInitEncryption(module, &error)) {
     goto done;
   }
+
+  crypt_slot = CryptsetupModuleRetrieveHeaderSlot(module, old_password, &error);
+  if (error) {
+    goto done;
+  }
+
+  if (module->debug) {
+    syslog(LOG_INFO, "Crypt slot check returned %d", crypt_slot);
+  }
+
+  if (crypt_slot != -1) {
+    if (module->debug) {
+      syslog(LOG_NOTICE,
+             "Removing old key from slot %d and adding new key to crypt header",
+             crypt_slot);
+    }
+    crypt_slot =
+        CryptsetupModuleRekey(module, username, password, crypt_slot, &error);
+    if (error) {
+      goto done;
+    }
+    if (module->debug) {
+      syslog(LOG_NOTICE, "Added new key to slot %d", crypt_slot);
+    }
+  } else {
+    if (module->debug) {
+      syslog(LOG_NOTICE, "Failed to find old key, not replacing");
+    }
+    goto done;
+  }
+
+  // Update cache if entry exists for user
+  cache_slot = CryptsetupModuleRetrieveCacheSlot(module, username);
+  if (module->debug) {
+    syslog(LOG_INFO, "Cache slot check returned %d", cache_slot);
+  }
+  if (cache_slot != -1) {
+    if (cache_slot != crypt_slot) {
+      if (module->debug) {
+        syslog(LOG_NOTICE, "Moving %s from cache slot %d to cache slot %d",
+               username, cache_slot, crypt_slot);
+      }
+      g_free(module->userslots[cache_slot]);
+      module->userslots[cache_slot] = g_malloc0(1);
+      g_free(module->userslots[crypt_slot]);
+      module->userslots[crypt_slot] = g_malloc(strlen(username) + 1);
+      strcpy(module->userslots[crypt_slot], username);
+    }
+  } else {
+    if (module->debug) {
+      syslog(LOG_NOTICE, "Recording %s in cache slot %d", username, crypt_slot);
+    }
+    g_free(module->userslots[crypt_slot]);
+    module->userslots[crypt_slot] = g_malloc(strlen(username) + 1);
+    strcpy(module->userslots[crypt_slot], username);
+  }
+
+done:
+
+  if (module->debug) {
+    syslog(LOG_INFO, "Cleaning up");
+  }
+  if (error) {
+    syslog(LOG_ERR, "Error: %s", error->message);
+    g_error_free(error);
+    return;
+  }
+
+  return;
+}
+
+void _ModuleAuthMode(CryptsetupModule *module, const gchar *username,
+                     const gchar *password) {
+  // Don't reuse error pointer from parent process
+  GError *error = NULL;
+  int cache_slot;
+  int crypt_slot;
 
   if (!CryptsetupModuleInitEncryption(module, &error)) {
     goto done;
@@ -480,17 +584,15 @@ static int clone_function(void *arg) {
     goto done;
   }
   if (module->debug) {
-    pam_syslog(pamh, LOG_INFO, "Crypt thread: cache slot: %d", cache_slot);
-    pam_syslog(pamh, LOG_INFO, "Crypt thread: crypt slot: %d", crypt_slot);
+    syslog(LOG_INFO, "Cache slot check returned %d", cache_slot);
+    syslog(LOG_INFO, "Crypt slot check returned %d", crypt_slot);
   }
   if (cache_slot != -1) {
     if (crypt_slot != -1) {
       if (cache_slot != crypt_slot) {
         if (module->debug) {
-          pam_syslog(
-              pamh, LOG_INFO,
-              "Crypt thread: moving %s from cache slot %d to cache slot %d",
-              username, cache_slot, crypt_slot);
+          syslog(LOG_NOTICE, "Moving %s from cache slot %d to cache slot %d",
+                 username, cache_slot, crypt_slot);
         }
         g_free(module->userslots[cache_slot]);
         module->userslots[cache_slot] = g_malloc0(1);
@@ -500,10 +602,10 @@ static int clone_function(void *arg) {
       }
     } else {
       if (module->debug) {
-        pam_syslog(pamh, LOG_INFO,
-                   "Crypt thread: removing key from crypt slot %d and adding "
-                   "new key to crypt header",
-                   cache_slot);
+        syslog(LOG_NOTICE,
+               "Removing key from crypt slot %d and adding "
+               "new key to crypt header",
+               cache_slot);
       }
       crypt_slot =
           CryptsetupModuleRekey(module, username, password, cache_slot, &error);
@@ -511,10 +613,8 @@ static int clone_function(void *arg) {
         goto done;
       }
       if (module->debug) {
-        pam_syslog(
-            pamh, LOG_INFO,
-            "Crypt thread: moving %s from cache slot %d to cache slot %d",
-            username, cache_slot, crypt_slot);
+        syslog(LOG_NOTICE, "Moving %s from cache slot %d to cache slot %d",
+               username, cache_slot, crypt_slot);
       }
       g_free(module->userslots[cache_slot]);
       module->userslots[cache_slot] = NULL;
@@ -524,8 +624,7 @@ static int clone_function(void *arg) {
     }
   } else if ((cache_slot == -1) && (crypt_slot != -1)) {
     if (module->debug) {
-      pam_syslog(pamh, LOG_INFO, "Crypt thread: recording %s in cache slot %d",
-                 username, crypt_slot);
+      syslog(LOG_NOTICE, "Recording %s in cache slot %d", username, crypt_slot);
     }
     g_free(module->userslots[crypt_slot]);
     module->userslots[crypt_slot] = g_malloc(strlen(username) + 1);
@@ -539,20 +638,19 @@ static int clone_function(void *arg) {
 done:
 
   if (module->debug) {
-    pam_syslog(pamh, LOG_INFO, "Crypt thread: cleaning up");
+    syslog(LOG_INFO, "Cleaning up");
   }
   if (error) {
-    pam_syslog(pamh, LOG_WARNING, "Crypt thread: Error: %s", error->message);
+    syslog(LOG_ERR, "Error: %s", error->message);
     g_error_free(error);
-    return -1;
+    return;
   }
 
-  return 0;
+  return;
 }
 
-PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc,
-                                   const char **argv) {
-  void *stack = NULL;
+int _StartModuleProcess(pam_handle_t *pamh, int flags, int argc,
+                        const char **argv, int mode) {
   GError *error = NULL;
 
   CryptsetupModule *module = CryptsetupModuleNew();
@@ -570,8 +668,6 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc,
     if (PAM_DISALLOW_NULL_AUTHTOK & flags) {
       pam_syslog(pamh, LOG_INFO, "PAM_DISALLOW_NULL_AUTHTOK flag enabled");
     }
-    pam_syslog(pamh, LOG_INFO, "Start: UID Real: %d Effective: %d", getuid(),
-               geteuid());
   }
 
   if (!CryptsetupModuleVerifyCryptName(module, &error)) {
@@ -583,7 +679,8 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc,
     goto done;
   }
 
-  const gchar *password = PamGetItemString(pamh, PAM_USER, "password", &error);
+  const gchar *password =
+      PamGetItemString(pamh, PAM_AUTHTOK, "password", &error);
   if (!password && (PAM_DISALLOW_NULL_AUTHTOK & flags)) {
     CryptsetupModuleFree(module);
     return PAM_AUTH_ERR;
@@ -591,47 +688,64 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc,
     goto done;
   }
 
+  const gchar *old_password =
+      PamGetItemString(pamh, PAM_OLDAUTHTOK, "old_password", &error);
+  if (mode == PASSWORD && !old_password) {
+    goto done;
+  }
+
   if (!CryptsetupModuleReadCache(module, kCryptsetupModuleCacheDir, &error)) {
     goto done;
   }
 
-  stack = g_malloc(kStackSize);
-  CloneStruct clonestruct = {module, pamh, username, password};
-  pid_t pid = clone(clone_function, stack + kStackSize, 0, &clonestruct);
-  if (pid == -1) {
-    g_set_error(&error, kCryptsetupModuleError, kCryptsetupModuleThreadError,
-                "failed to start crypt thread: %s (%d)", strerror(errno),
-                errno);
-    goto done;
+  pid_t child_pid;
+  child_pid = fork();
+  if (child_pid == 0) {
+    // Start child process
+    umask(0);
+    openlog("pam-cryptsetupd", LOG_PID, LOG_AUTH);
+    syslog(LOG_DEBUG, "Start pam-cryptsetup daemon process");
+    // Prevent privilage de-escalation by libgcrypt memory protection
+    if ((setsid() < 0) || (setuid(0) != 0)) {
+      syslog(LOG_ERR, "Unable to set session id or user id, aborting");
+      exit(0);
+    }
+
+    if (mode == AUTH) {
+      _ModuleAuthMode(module, username, password);
+    } else {
+      _ModuleCredMode(module, username, password, old_password);
+    }
+
+    CryptsetupModuleFree(module);
+    closelog();
+    exit(0);
+    // End child process
   }
-  int status = 0;
-  if (waitpid(pid, &status, __WCLONE) == -1) {
-    g_set_error(&error, kCryptsetupModuleError, kCryptsetupModuleThreadError,
-                "failed to block on crypt thread: %s (%d)", strerror(errno),
-                errno);
-    goto done;
+
+  if (module->debug) {
+    pam_syslog(pamh, LOG_INFO, "Spawned daemon with PID %d", child_pid);
   }
 
 done:
-  g_free(stack);
-
   if (error) {
     pam_syslog(pamh, LOG_WARNING, "Error: %s", error->message);
     g_error_free(error);
   }
 
-  if (module->debug) {
-    pam_syslog(pamh, LOG_INFO, "End: UID Real: %d Effective: %d", getuid(),
-               geteuid());
-  }
-
-  CryptsetupModuleFree(module);
-
+  // Don't free module as it's used by daemon process
   return PAM_IGNORE;
+}
+
+PAM_EXTERN int pam_sm_authenticate(pam_handle_t *pamh, int flags, int argc,
+                                   const char **argv) {
+
+  return _StartModuleProcess(pamh, flags, argc, argv, AUTH);
 }
 
 PAM_EXTERN int pam_sm_setcred(pam_handle_t *pamh, int flags, int argc,
                               const char **argv) {
+
   return PAM_IGNORE;
 }
 
@@ -652,5 +766,5 @@ PAM_EXTERN int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc,
 
 PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc,
                                 const char **argv) {
-  return PAM_IGNORE;
+  return _StartModuleProcess(pamh, flags, argc, argv, PASSWORD);
 }
