@@ -8,7 +8,7 @@ kept in sync with account passwords automatically based on factors like if the u
 decypted the disk successfully previously.
 
 # Module Configuration
-When adding this module to an authentication stack, it is recommended to use either the auth [default=ignore] or auth optional flags and to place its entry at the very end of the auth module sequence, as one probably doesn't want authentication of a user hinging on a module that doesn't actually provide any.
+When adding this module to an authentication stack, it is recommended to use either the '[default=ignore]' or 'optional' flags and to place the entry for the module at the very end of the PAM config file sequence, as one probably doesn't want authentication of a user hinging on a module that doesn't provide any.
 
 ## Arguments:
 * `crypt_name=<container>` (Required): Name of encrypted /dev/mapper based container to probe.
@@ -23,6 +23,11 @@ Square brackets ([ and ]) can be used for device names with spaces:
 ```
 auth [default=ignore] pam_cryptsetup.so [crypt_name=my special device]
 ```
+As an alternative to the standard authentication mode (where the module runs at every auth) the module can instead be used in password mode, and will run only when a user account password is set via the passwd command:
+```
+password [default=ignore] pam_cryptsetup.so crypt_name=rootdev_crypt
+```
+
 # Crypt Slot Cache
 All user information, such as which (if any) slot was most recently unlocked with their login password, is recoded in /var/cache/libpam-cryptsetup as a GLib string array.
 The default format, before any unlocking has happened, is as follows:
@@ -45,6 +50,9 @@ During authentication, the module takes the following information into account:
 * Crypt slots
 
 Once all available information is gathered, the action taken is decided by the following logic:
+
+Authentication mode:
+
 * No action if:
   * User is not recorded in-cache, and password does not unlock any slot
   * User is recorded in-cache, and password unlocks the associated slot
@@ -53,6 +61,17 @@ Once all available information is gathered, the action taken is decided by the f
 * Update cache if:
   * User is recorded in-cache, and password unlocks different slot than the one recorded
   * User is not recorded in-cache, and password unlocks a slot
+
+Password mode:
+
+* No action if:
+  * Old password does not unlock a slot
+* Update disk if:
+  * Old password unlocks a slot
+* ADDITIONALLY update cache if:
+  * User entry exists in a different cache slot compared to new crypt slot
+
+Note: While password mode will interact with the cache in some cases, it is not meant to be used in addition to authentication mode, and such usage is untested and considered unsupported at this time; you have been warned!
 
 # Building
 
