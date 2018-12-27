@@ -36,7 +36,7 @@ The default format, before any unlocking has happened, is as follows:
 ```
 where each string associates with one of the 8 LUKS slots (numbered 0-7) available. Once a user's password has sucessfully unlocked a slot on the disk, their username is added to the string associated with the number slot unlocked.
 
-For example, if we had a user "kathy" unlock slot 3, the cache would be updated as follows:
+For example, if we had a user 'kathy' unlock slot 3, the cache would be updated as follows:
 ```
 ['', '', '', 'kathy', '', '', '', '']
 ```
