@@ -12,29 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-AM_CFLAGS = $(GLIB_CFLAGS) -Wall -Werror \
-	    -DG_LOG_DOMAIN="\"pamcryptsetup\"" \
-	    -D_GNU_SOURCE=1 \
-	    -fPIC -fstack-protector-all -D_FORTIFY_SOURCE=2 \
-	    -Wl,-z,relro,-z,now, -Wformat -Wformat-security
-AM_LDFLAGS = $(GLIB_LIBS) -lpam -lcryptsetup -ldevmapper -Wa,--noexecstack
+# GLib TAP test harness.
+include $(top_srcdir)/glib-tap.mk
+
+AM_CFLAGS = $(GLIB_CFLAGS) -Wall -Werror -DG_LOG_DOMAIN="\"pamcryptsetup\"" \
+		-D_GNU_SOURCE=1 -fstack-protector-all -D_FORTIFY_SOURCE=2 \
+		-Wl,-z,relro,-z,now, -Wformat -Wformat-security
+AM_LDFLAGS = $(GLIB_LIBS) -Wa,--noexecstack
 
 securelibdir = $(libdir)/security
 securelib_LTLIBRARIES = pam_cryptsetup.la
 
 MODULE_SOURCES = module.c module.h
-
-EXTRA_DIST = run_root_tests.test run_nonroot_tests.test
+HELPER_SOURCES = helper.c helper.h
 
 pam_cryptsetup_la_SOURCES = $(MODULE_SOURCES)
+pam_cryptsetup_la_CFLAGS = -fPIC $(AM_CFLAGS)
+pam_cryptsetup_la_CPPFLAGS = -DHELPER_EXEC='"$(libexecdir)/pam_cryptsetup/pam_cryptsetup_helper"'
 pam_cryptsetup_la_LDFLAGS = -shared -module -avoid-version \
-			     -export-symbols-regex 'pam_sm_*' \
-			     $(AM_LDFLAGS)
+		-export-symbols-regex 'pam_sm_*' -lpam $(AM_LDFLAGS)
 
-# Unit-tests with one executable per test-suite.
-module_test_SOURCES = module_test.c $(MODULE_SOURCES)
-module_test_LDFLAGS = -no-install $(AM_LDFLAGS)
-module_test_CFLAGS = $(AM_CFLAGS)
+bin_PROGRAMS = pam_cryptsetup_helper
+pam_cryptsetup_helper_SOURCES = $(HELPER_SOURCES)
+pam_cryptsetup_helper_CFLAGS = $(AM_CFLAGS)
+pam_cryptsetup_helper_CPPFLAGS = -DCACHE_DIR='"$(prefix)/var/pam_cryptsetup"'
+pam_cryptsetup_helper_LDFLAGS = -avoid-version -lcryptsetup -ldevmapper \
+ 		-Wa,--noexecstack $(AM_LDFLAGS)
 
-check_PROGRAMS = module_test
-TESTS = run_nonroot_tests.test run_root_tests.test
+# GLib unit test programs for helper.
+
+helper_test_sources = helper_test.c $(HELPER_SOURCES)
+helper_test_LDFLAGS = -no-install $(AM_LDFLAGS)
+helper_test_CFLAGS = $(AM_CFLAGS)
+
+test_programs = helper_test

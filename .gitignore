@@ -8,7 +8,8 @@ configure
 libtool
 Makefile
 Makefile.in
-m4/
+m4/libtool.m4
+m4/lt*.m4
 
 # build stuff
 *.o
@@ -16,8 +17,13 @@ m4/
 *.lo
 *.log
 *.trs
+.tags
+.tags1
 .libs/
-module_test
+src/.deps
+
+# test stuff
+src/pamEncTest*
 
 # packaging stuff
 debian/autoreconf.*

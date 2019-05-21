@@ -1,1 +1,2 @@
-EXTRA_DIST = testimage.img
+# GLib test distribution data.
+dist_test_data = testimage.img
