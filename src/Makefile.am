@@ -32,7 +32,7 @@ pam_cryptsetup_la_CPPFLAGS = -DHELPER_EXEC='"$(libexecdir)/pam_cryptsetup/pam_cr
 pam_cryptsetup_la_LDFLAGS = -shared -module -avoid-version \
 		-export-symbols-regex 'pam_sm_*' -lpam $(AM_LDFLAGS)
 
-bin_PROGRAMS = pam_cryptsetup_helper
+libexec_PROGRAMS = pam_cryptsetup_helper
 pam_cryptsetup_helper_SOURCES = $(HELPER_SOURCES)
 pam_cryptsetup_helper_CFLAGS = $(AM_CFLAGS)
 pam_cryptsetup_helper_CPPFLAGS = -DCACHE_DIR='"$(prefix)/var/pam_cryptsetup"'

@@ -6,6 +6,7 @@
 override_dh_auto_configure:
 	dh_auto_configure -- \
 		--libdir=/lib/$(DEB_HOST_MULTIARCH) \
+		--libexecdir=/lib/$(DEB_HOST_MULTIARCH)/pam_cryptsetup \
 		--disable-silent-rules
 
 override_dh_auto_install:
