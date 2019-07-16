@@ -9,5 +9,8 @@ override_dh_auto_configure:
 		--libexecdir=/lib/$(DEB_HOST_MULTIARCH)/pam_cryptsetup \
 		--disable-silent-rules
 
+override_dh_auto_test:
+	# Skip tests due to cryptsetup requirement to run as root
+
 override_dh_auto_install:
 	dh_auto_install --destdir=debian/tmp
