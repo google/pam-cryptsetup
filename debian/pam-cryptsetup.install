@@ -1,2 +1,2 @@
 /lib/*/security/pam_cryptsetup.so
-/lib/*/pam_cryptsetup/pam_cryptsetup_helper
+/lib/*/pam-cryptsetup/pam_cryptsetup_helper
