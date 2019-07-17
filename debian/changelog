@@ -1,4 +1,4 @@
-pam-cryptsetup (0.1-1) UNRELEASED; urgency=medium
+pam-cryptsetup (0.1) UNRELEASED; urgency=medium
 
   * Initial release.
 

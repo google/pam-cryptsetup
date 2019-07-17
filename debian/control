@@ -2,17 +2,27 @@ Source: pam-cryptsetup
 Maintainer: Warren Whitman <warrenpw@google.com>
 Section: admin
 Priority: optional
-Standards-Version: 3.9.5
+Standards-Version: 4.2.0
 Build-Depends: debhelper (>= 9), autotools-dev, libglib2.0-dev,
   libcryptsetup-dev, libdevmapper-dev, libpam0g-dev, automake,
   libtool, autogen, dh-autoreconf
 Homepage: https://github.com/google/pam-cryptsetup
 
-Package: pam-cryptsetup
+Package: libpam-cryptsetup
 Architecture: any
+Multi-Arch: same
+Depends: ${shlibs:Depends}, ${misc:Depends}, pam-cryptsetup-tools
+Vcs-Browser: https://github.com/google/pam-cryptsetup
+Vcs-Git: https://github.com/google/pam-cryptsetup
+Description: PAM module for updating LUKS-encrypted volumes
+ Provides a method to allow PAM to update a LUKS-encrypted volume when a
+ user authenticates to the system
+
+Package: pam-cryptsetup-tools
+Architecture: any
+Multi-Arch: foreign
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: Allows password of encrypted volume to be set on login
- Attempts to match user login pass with existing LUKS encryption keyslot.
- If successful, pam-cryptsetup notes the association, and if a future
- login fails to decrypt the disk via that slot, the user is moved to a
- new slot that is keyed with the new password, and the old slot destroyed.
+Vcs-Browser: https://github.com/google/pam-cryptsetup
+Vcs-Git: https://github.com/google/pam-cryptsetup
+Description: Support binaries for libpam-cryptsetup
+ Provides binaries required by libpam-cryptsetup to properly function
