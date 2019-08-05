@@ -368,6 +368,10 @@ int main(int argc, char *argv[]) {
         mlockall(MCL_CURRENT | MCL_FUTURE);
         syslog(LOG_DEBUG, "Process memory locked");
 
+	for (int i = 0; i < argc; i++) {
+		syslog(LOG_INFO, "Argument %d: %s", i, argv[i]);
+	}
+
         if (argc < 3) {
                 syslog(LOG_ERR, "Too few arguments. Expected: volume_name username [cache_path].");
                 exit(EX_USAGE);

@@ -161,7 +161,7 @@ int _StartModuleProcess(pam_handle_t *pamh, int flags, int argc, const char **ar
                 close(pfd[1]);
                 close(opfd[0]);
                 close(opfd[1]);
-                execl(HELPER_EXEC, module->crypt_mapper_name, username, (char *)NULL);
+                execl(HELPER_EXEC, HELPER_EXEC, module->crypt_mapper_name, username, (char *)NULL);
                 // If we get here, execute failed.
                 exit(EX_OSERR);
                 // End child process
