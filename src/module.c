@@ -150,8 +150,7 @@ int _StartModuleProcess(pam_handle_t *pamh, int flags, int argc, const char **ar
             }
             goto done;
         }
-        close(pfd[0]);
-        close(opfd[1]);
+
         child_pid = fork();
         if (child_pid == 0) {
                 // Start child process
