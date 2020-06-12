@@ -383,7 +383,11 @@ int main(int argc, char *argv[]) {
         }
 
         syslog(LOG_DEBUG, "Reading argument 1");
-        strncpy(state->crypt_mapper_name, argv[1], STRING_BUFFER_SIZE);
+        // suppress stringop-truncatation warning
+        // we already check for missing \0
+        #pragma GCC diagnostic push
+        #pragma GCC diagnostic ignored "-Wstringop-truncation"
+        (strncpy(state->crypt_mapper_name, argv[1], STRING_BUFFER_SIZE));
         if (state->crypt_mapper_name[STRING_BUFFER_SIZE - 1] != 0) {
                 syslog(LOG_ERR, "Crypt device name overran buffer size of %d bytes.", STRING_BUFFER_SIZE);
                 exit(EX_SOFTWARE);
@@ -415,6 +419,7 @@ int main(int argc, char *argv[]) {
                 }
                 syslog(LOG_INFO, "Setting cache path to %s", state->cache_path);
         }
+        # pragma GCC diagnostic pop
 
         syslog(LOG_DEBUG, "Reading password from login module.");
         if (fgets(state->password, PASSWORD_BUFFER_SIZE, stdin) == NULL) {
